@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Loading...</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #1f2335;
+      color: #a9b1d6;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      text-align: center;
+    }
+
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #2f354d;
+      border-top-color: #7aa2f7;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    .message {
+      font-size: 1.1rem;
+      margin: 0;
+      opacity: 0;
+      animation: fade-in 0.5s ease forwards;
+    }
+
+    .submessage {
+      font-size: 0.9rem;
+      color: #565f89;
+      margin: 0.5rem 0 0 0;
+      max-width: 300px;
+      opacity: 0;
+      animation: fade-in 0.5s ease forwards 0.3s;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes fade-in {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="loading-container">
+    <div class="spinner"></div>
+    <p class="message">Loading your application...</p>
+    <p class="submessage">Setting up the development environment and starting the server. This may take a moment.</p>
+  </div>
+</body>
+</html>

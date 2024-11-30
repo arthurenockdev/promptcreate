@@ -1,0 +1,4 @@
+i got this error, Creating network "promptcreate_default" with the default driver
+Building app
+Error response from daemon: Error processing tar file(exit status 1): write /node_modules/@next/swc-linux-x64-musl/next-swc.linux-x64-musl.node: no space left on device
+Service 'app' failed to build : Build failed
