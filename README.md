@@ -29,6 +29,6 @@ PromptCreate is an AI-powered web application that helps developers build full-s
 4. Use the built-in editor to modify the code
 5. See your changes in real-time in the preview window
 
-## License
+## Copyright
 
-MIT License - feel free to use this project for your own purposes!
+ 2024 PromptCreate. All rights reserved. This is a commercial application. Unauthorized copying, modification, distribution, or use of this software is strictly prohibited.
