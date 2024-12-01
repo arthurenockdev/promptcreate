@@ -6,6 +6,12 @@
   --foreground-rgb: 255, 255, 255;
   --background-start-rgb: 0, 0, 0;
   --background-end-rgb: 0, 0, 0;
+  --primary-bg: #1a1b26;
+  --secondary-bg: #1f2335;
+  --border-color: #2f354d;
+  --accent-color: #7aa2f7;
+  --error-color: #f44747;
+  --success-color: #9ece6a;
 }
 
 * {
@@ -21,108 +27,26 @@ html, body {
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: #1a1b26;
+  background: var(--primary-bg);
 }
 
-.container {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 1rem;
-  padding: 1rem;
+/* Main workspace layout */
+.workspace {
+  display: flex;
   height: 100vh;
-  width: 100vw;
   overflow: hidden;
-}
-
-.editor {
-  grid-column: 1;
-  grid-row: 1;
-  background: #1f2335;
-  border-radius: 0.5rem;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #2f354d;
-}
-
-.editor > div {
-  flex: 1;
-  min-height: 0;
-}
-
-.preview {
-  grid-column: 2;
-  grid-row: 1;
-  background: #1f2335;
-  border-radius: 0.5rem;
-  overflow: hidden;
-  border: 1px solid #2f354d;
-}
-
-.preview iframe {
-  width: 100%;
-  height: 100%;
-  border: none;
-  background: white;
-}
-
-.terminal {
-  grid-column: 1 / -1;
-  grid-row: 2;
-  background: #1e1e1e;
-  border-radius: 0.5rem;
-  padding: 0.5rem;
-  overflow: hidden;
-  min-height: 250px;
   position: relative;
-  border: 1px solid #2f354d;
+  background: #1e1e1e;
 }
 
-.terminal-error {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  background: #f44747;
-  color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 0.25rem;
-  font-size: 0.9rem;
-  z-index: 10;
-  max-width: 80%;
-  word-break: break-word;
-}
-
-.terminal .xterm {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 0.75rem;
-}
-
-.terminal .xterm-viewport {
-  background-color: #1e1e1e !important;
-}
-
-.terminal .xterm-screen {
-  padding: 0.25rem;
-}
-
-.chat {
-  position: fixed;
-  bottom: 1rem;
-  right: 1rem;
-  width: 350px;
-  max-height: 500px;
-  background: #1f2335;
-  border-radius: 0.5rem;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+/* Chat section */
+.chat-section {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  z-index: 1000;
-  border: 1px solid #2f354d;
+  border-right: 1px solid #2d2d2d;
+  background: #1e1e1e;
+  position: relative;
 }
 
 .chat-messages {
@@ -132,72 +56,177 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  max-height: 300px;
 }
 
 .chat-message {
-  padding: 0.75rem;
+  padding: 1rem;
   border-radius: 0.5rem;
+  max-width: 85%;
+  line-height: 1.5;
   white-space: pre-wrap;
-  font-size: 0.9rem;
-  line-height: 1.4;
 }
 
 .chat-message.assistant {
-  background: #2f354d;
-  color: #d4d4d4;
+  background: rgba(255, 255, 255, 0.05);
+  align-self: flex-start;
 }
 
 .chat-message.user {
-  background: #3d59a1;
-  color: #ffffff;
+  background: var(--accent-color);
   align-self: flex-end;
 }
 
-.chat-input {
+.chat-input-form {
   padding: 1rem;
-  border-top: 1px solid #2f354d;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid var(--border-color);
   display: flex;
-  flex-direction: column;
   gap: 0.5rem;
 }
 
-.chat-input textarea {
-  width: 100%;
-  min-height: 80px;
-  padding: 0.5rem;
-  border-radius: 0.25rem;
-  background: #1e1e1e;
-  border: 1px solid #2f354d;
-  color: #d4d4d4;
-  resize: none;
-  font-family: inherit;
-  font-size: 0.9rem;
-  line-height: 1.4;
-}
-
-.chat-input textarea:focus {
-  outline: none;
-  border-color: #3d59a1;
-}
-
-.chat-input button {
-  padding: 0.5rem 1rem;
-  background: #3d59a1;
+.chat-input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.2);
   color: white;
+  font-size: 0.9rem;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.chat-input:focus {
+  border-color: var(--accent-color);
+}
+
+.chat-submit {
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
   border: none;
-  border-radius: 0.25rem;
-  cursor: pointer;
+  background: var(--accent-color);
+  color: white;
   font-weight: 500;
-  transition: background-color 0.2s;
+  cursor: pointer;
+  transition: opacity 0.2s;
 }
 
-.chat-input button:hover:not(:disabled) {
-  background: #4b6bbd;
-}
-
-.chat-input button:disabled {
-  background: #2f354d;
+.chat-submit:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
-  opacity: 0.7;
+}
+
+/* Workspace section */
+.workspace-section {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #1e1e1e;
+}
+
+/* Resizer */
+.resizer {
+  position: absolute;
+  top: 0;
+  width: 4px;
+  height: 100%;
+  background: #2d2d2d;
+  cursor: col-resize;
+  transition: background-color 0.2s;
+  z-index: 10;
+}
+
+.resizer:hover,
+.resizer:active {
+  background: #007acc;
+}
+
+/* Prevent text selection while dragging */
+.workspace.dragging {
+  user-select: none;
+  cursor: col-resize;
+}
+
+.workspace.dragging iframe {
+  pointer-events: none;
+}
+
+/* Tabs */
+.workspace-tabs {
+  display: flex;
+  background: #252526;
+  border-bottom: 1px solid #2d2d2d;
+  padding: 0 4px;
+}
+
+.tab {
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  color: #969696;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+  border-bottom: 2px solid transparent;
+  margin: 0 2px;
+}
+
+.tab:hover {
+  color: #ffffff;
+  background: #2d2d2d;
+}
+
+.tab.active {
+  color: #ffffff;
+  border-bottom: 2px solid #007acc;
+  background: #1e1e1e;
+}
+
+/* Workspace Content */
+.workspace-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.preview-container,
+.editor-container,
+.terminal-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+  overflow: hidden;
+}
+
+.preview-container.active,
+.editor-container.active,
+.terminal-container.active {
+  display: block;
+}
+
+.preview-container iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: white;
+}
+
+/* Terminal */
+.terminal-content {
+  width: 100%;
+  height: 100%;
+  background: #1e1e1e;
+  padding: 8px;
+}
+
+.terminal-error {
+  color: #f44336;
+  padding: 8px;
+  margin-bottom: 8px;
+  background: rgba(244, 67, 54, 0.1);
+  border-radius: 4px;
 }
