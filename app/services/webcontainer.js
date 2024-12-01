@@ -37,13 +37,25 @@ export async function initWebContainer() {
         throw new Error('Cross-Origin Isolation is not enabled. Please ensure COOP and COEP headers are set.');
       }
 
-      // Initialize WebContainer
-      webcontainerInstance = await WebContainer.boot();
+      // Initialize WebContainer with timeout
+      const bootPromise = WebContainer.boot();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('WebContainer initialization timed out')), 30000)
+      );
+
+      webcontainerInstance = await Promise.race([bootPromise, timeoutPromise]);
+
+      // Add error handler
+      webcontainerInstance.on('error', (error) => {
+        console.error('WebContainer error:', error);
+        cleanup();
+      });
+
       return webcontainerInstance;
     } catch (error) {
       console.error('Failed to initialize WebContainer:', error);
       // Reset state on error
-      webcontainerInstance = null;
+      cleanup();
       throw error;
     } finally {
       isInitializing = false;
@@ -52,6 +64,23 @@ export async function initWebContainer() {
   })();
 
   return initPromise;
+}
+
+export function cleanup() {
+  if (webcontainerInstance) {
+    try {
+      // Stop any running processes
+      webcontainerInstance.teardown().catch(console.error);
+    } catch (error) {
+      console.error('Error during cleanup:', error);
+    }
+  }
+  
+  // Reset all state
+  webcontainerInstance = null;
+  serverUrl = null;
+  isInitializing = false;
+  initPromise = null;
 }
 
 export async function mountFiles(files) {
@@ -147,39 +176,95 @@ export async function installDependencies(terminal) {
 }
 
 export async function startDevServer(terminal) {
-  const instance = await initWebContainer();
   try {
-    // Start the development server
-    const serverProcess = await instance.spawn('npm', ['run', 'dev']);
-
-    serverProcess.output.pipeTo(
-      new WritableStream({
-        write(data) {
-          terminal.write(data);
-        },
-      })
-    );
-
-    // Wait for the server to be ready
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Server startup timed out'));
-      }, 30000); // 30 second timeout
-
-      const checkServer = async () => {
+    const instance = await initWebContainer();
+    
+    // Kill any existing processes
+    try {
+      const processes = await instance.ps();
+      for (const proc of processes) {
         try {
-          const response = await fetch('http://localhost:3000');
-          if (response.ok) {
-            clearTimeout(timeout);
-            resolve();
-          } else {
-            setTimeout(checkServer, 100);
-          }
-        } catch {
-          setTimeout(checkServer, 100);
+          await proc.kill();
+        } catch (e) {
+          console.warn('Failed to kill process:', e);
         }
-      };
-      checkServer();
+      }
+    } catch (e) {
+      console.warn('Failed to list processes:', e);
+    }
+
+    // Start the server
+    terminal?.write('\r\n\x1b[36m> Starting development server...\x1b[0m\r\n');
+    
+    const serverProcess = await instance.spawn('npm', ['run', 'dev']);
+    
+    return new Promise((resolve, reject) => {
+      let buffer = '';
+      const timeout = setTimeout(() => {
+        reject(new Error('Server startup timed out after 60 seconds'));
+      }, 60000);
+
+      // Handle server output
+      serverProcess.output.pipeTo(
+        new WritableStream({
+          write(chunk) {
+            // Write to terminal
+            terminal?.write(chunk);
+            
+            // Add to buffer for analysis
+            buffer += new TextDecoder().decode(chunk, { stream: true });
+            
+            // Check for success patterns
+            if (
+              buffer.includes('ready') || 
+              buffer.includes('started server') ||
+              buffer.includes('localhost:3000') ||
+              buffer.includes('http://localhost')
+            ) {
+              clearTimeout(timeout);
+              resolve();
+            }
+            
+            // Check for error patterns
+            if (
+              buffer.includes('ERR_MODULE_NOT_FOUND') ||
+              buffer.includes('Failed to compile') ||
+              buffer.includes('EADDRINUSE') ||
+              (buffer.includes('Error:') && !buffer.includes('TS Error'))
+            ) {
+              clearTimeout(timeout);
+              const errorMatch = buffer.match(/Error:([^\n]*)/);
+              const errorMessage = errorMatch ? errorMatch[1].trim() : 'Unknown error';
+              reject(new Error(`Server failed to start: ${errorMessage}`));
+            }
+          },
+          close() {
+            console.log('Server process stream closed');
+          },
+          abort(reason) {
+            reject(new Error(`Server process aborted: ${reason}`));
+          }
+        })
+      ).catch(error => {
+        reject(new Error(`Failed to handle server output: ${error.message}`));
+      });
+
+      // Handle server error stream
+      serverProcess.stderr.pipeTo(
+        new WritableStream({
+          write(chunk) {
+            const text = new TextDecoder().decode(chunk, { stream: true });
+            terminal?.write(`\x1b[31m${text}\x1b[0m`);
+            
+            if (text.includes('Error:')) {
+              clearTimeout(timeout);
+              reject(new Error(`Server error: ${text.trim()}`));
+            }
+          }
+        })
+      ).catch(error => {
+        console.warn('Failed to handle server errors:', error);
+      });
     });
   } catch (error) {
     console.error('Failed to start development server:', error);
@@ -197,19 +282,4 @@ export function onServerReady(callback) {
     serverUrl = url;
     callback(url);
   });
-}
-
-export function cleanup() {
-  if (webcontainerInstance) {
-    try {
-      webcontainerInstance.teardown();
-    } catch (error) {
-      console.error('Error during cleanup:', error);
-    } finally {
-      webcontainerInstance = null;
-      serverUrl = null;
-      isInitializing = false;
-      initPromise = null;
-    }
-  }
 }

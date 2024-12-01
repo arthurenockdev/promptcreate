@@ -56,23 +56,38 @@ export default function CreatePage() {
 
   const handleFileSelect = async (path) => {
     try {
-      if (fileManager.current) {
-        const content = await fileManager.current.readFile(path);
-        setSelectedFile(path);
-        setFileContent(content);
-        fileManager.current.setCurrentFile(path);
+      if (!fileManager.current) {
+        throw new Error('File manager is not initialized');
       }
+      if (!path) {
+        throw new Error('No file path provided');
+      }
+
+      const content = await fileManager.current.readFile(path);
+      setSelectedFile(path);
+      setFileContent(content);
+      fileManager.current.setCurrentFile(path);
     } catch (error) {
       console.error('Error selecting file:', error);
       setError(`Failed to open file: ${error.message}`);
+      // Keep the previous file selected on error
+      setSelectedFile(prevSelectedFile => prevSelectedFile);
     }
   };
 
   const handleEditorChange = async (value) => {
     try {
-      if (fileManager.current && selectedFile) {
-        await fileManager.current.writeFile(selectedFile, value);
+      if (!fileManager.current) {
+        throw new Error('File manager is not initialized');
       }
+      if (!selectedFile) {
+        throw new Error('No file is currently selected');
+      }
+      if (typeof value !== 'string') {
+        throw new Error('Invalid file content');
+      }
+
+      await fileManager.current.writeFile(selectedFile, value);
     } catch (error) {
       console.error('Error saving file:', error);
       setError(`Failed to save file: ${error.message}`);
@@ -82,6 +97,16 @@ export default function CreatePage() {
   const initializeNextJsEnvironment = async () => {
     try {
       setLoading(true);
+      setError(null); // Clear any previous errors
+      
+      // Check if WebContainer is ready
+      if (!webContainerInstance) {
+        throw new Error('WebContainer is not initialized');
+      }
+
+      terminalInstance.current?.write('\r\n\x1b[36m> Creating project files...\x1b[0m\r\n');
+      
+      // Create project files
       const files = await createNextJsFiles(projectDetails.name);
       
       // Initialize file manager
@@ -90,27 +115,27 @@ export default function CreatePage() {
         fileManager.current.setOnFilesChange(setCurrentFiles);
       }
       
+      terminalInstance.current?.write('\r\n\x1b[36m> Initializing project...\x1b[0m\r\n');
+      
+      // Initialize project in file manager
       await fileManager.current.initialize(projectDetails.name || 'nextjs-project', files);
       
       // Mount files to WebContainer
-      await webContainerInstance.mount(files);
+      await mountFiles(files);
       
       // Start auto-save
       fileManager.current.startAutoSave();
+
+      terminalInstance.current?.write('\r\n\x1b[36m> Installing dependencies...\x1b[0m\r\n');
       
-      // Initialize the development server
-      const packageJSON = await webContainerInstance.fs.readFile('package.json', 'utf-8');
-      console.log('Package.json:', packageJSON);
-
-      const installProcess = await webContainerInstance.spawn('npm', ['install']);
-      const installExitCode = await installProcess.exit;
-
-      if (installExitCode !== 0) {
-        throw new Error('Installation failed');
+      // Install dependencies
+      const exitCode = await installDependencies(terminalInstance.current);
+      if (exitCode !== 0) {
+        throw new Error('Failed to install dependencies');
       }
 
       // Start the development server
-      startDevServer(webContainerInstance);
+      await startDevServer(terminalInstance.current);
       
       // Set initial file content
       const initialContent = await fileManager.current.readFile('app/page.js');
@@ -118,16 +143,26 @@ export default function CreatePage() {
       
       setLoading(false);
       setIsEnvironmentReady(true);
+      
+      terminalInstance.current?.write('\r\n\x1b[32m> Project setup complete!\x1b[0m\r\n');
     } catch (error) {
       console.error('Failed to initialize Next.js environment:', error);
       setLoading(false);
       setError(`Failed to initialize environment: ${error.message}`);
-      throw error;
+      
+      // Write error to terminal
+      terminalInstance.current?.write(`\r\n\x1b[31m> Error: ${error.message}\x1b[0m\r\n`);
+      
+      // Clean up on error
+      if (fileManager.current) {
+        fileManager.current.stopAutoSave();
+      }
+      cleanup();
     }
   };
 
   useEffect(() => {
-    const initializeTerminal = async () => {
+    const initializeEnvironment = async () => {
       if (typeof window !== 'undefined' && !terminalInstance.current) {
         try {
           // Initialize terminal
@@ -147,6 +182,9 @@ export default function CreatePage() {
 
           // Open terminal
           const terminalElement = document.getElementById('terminal');
+          if (!terminalElement) {
+            throw new Error('Terminal element not found');
+          }
           terminalInstance.current.open(terminalElement);
           
           // Initial fit
@@ -160,6 +198,17 @@ export default function CreatePage() {
             }
           }, 100);
 
+          // Initialize WebContainer
+          const container = await initWebContainer();
+          if (!container) {
+            throw new Error('Failed to initialize WebContainer');
+          }
+          setWebContainerInstance(container);
+          
+          // Write success message to terminal
+          terminalInstance.current.write('\r\n\x1b[32m> Environment ready!\x1b[0m\r\n');
+          setIsEnvironmentReady(true);
+
           // Handle window resize
           const handleResize = () => {
             if (fitAddon.current) {
@@ -172,15 +221,6 @@ export default function CreatePage() {
           };
 
           window.addEventListener('resize', handleResize);
-
-          // Initialize WebContainer
-          const container = await initWebContainer();
-          if (container) {
-            setWebContainerInstance(container);
-            setIsEnvironmentReady(true);
-            terminalInstance.current.write('\r\n\x1b[32m> Environment ready!\x1b[0m\r\n');
-          }
-
           return () => {
             window.removeEventListener('resize', handleResize);
             if (terminalInstance.current) {
@@ -191,11 +231,12 @@ export default function CreatePage() {
         } catch (err) {
           console.error('Failed to initialize environment:', err);
           setError(err.message);
+          setLoading(false);
         }
       }
     };
 
-    initializeTerminal();
+    initializeEnvironment();
   }, []);
 
   const handleSubmit = async (e) => {
@@ -366,6 +407,69 @@ export default function CreatePage() {
     } catch (error) {
       console.error('Error in setup:', error);
       setError(`Setup failed: ${error.message}`);
+    }
+  };
+
+  const mountFiles = async (files) => {
+    try {
+      await webContainerInstance.mount(files);
+    } catch (error) {
+      console.error('Failed to mount files:', error);
+      throw new Error('Failed to mount project files');
+    }
+  };
+
+  const installDependencies = async (terminal) => {
+    try {
+      const installProcess = await webContainerInstance.spawn('npm', ['install']);
+      
+      installProcess.output.pipeTo(
+        new WritableStream({
+          write(data) {
+            terminal?.write(data);
+          }
+        })
+      );
+      
+      return await installProcess.exit;
+    } catch (error) {
+      console.error('Failed to install dependencies:', error);
+      throw new Error('Failed to install project dependencies');
+    }
+  };
+
+  const startDevServer = async (terminal) => {
+    try {
+      const serverProcess = await webContainerInstance.spawn('npm', ['run', 'dev']);
+      
+      serverProcess.output.pipeTo(
+        new WritableStream({
+          write(data) {
+            terminal?.write(data);
+          }
+        })
+      );
+      
+      // Wait for server to be ready
+      await new Promise((resolve) => {
+        let buffer = '';
+        const textDecoder = new TextDecoder();
+        
+        const readableStream = serverProcess.output.pipeThrough(
+          new TransformStream({
+            transform(chunk, controller) {
+              buffer += textDecoder.decode(chunk);
+              if (buffer.includes('Ready')) {
+                resolve();
+                controller.terminate();
+              }
+            },
+          })
+        );
+      });
+    } catch (error) {
+      console.error('Failed to start development server:', error);
+      throw new Error('Failed to start development server');
     }
   };
 
