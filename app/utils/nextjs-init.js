@@ -92,6 +92,7 @@ body {
     rgb(var(--background-start-rgb));
 }`;
 
+  // Create directory structure
   return {
     'package.json': {
       file: {
@@ -113,19 +114,23 @@ body {
         contents: postcssConfig
       }
     },
-    'app/layout.js': {
-      file: {
-        contents: layoutContent
-      }
-    },
-    'app/page.js': {
-      file: {
-        contents: pageContent
-      }
-    },
-    'app/globals.css': {
-      file: {
-        contents: globalsCSS
+    'app': {
+      directory: {
+        'layout.js': {
+          file: {
+            contents: layoutContent
+          }
+        },
+        'page.js': {
+          file: {
+            contents: pageContent
+          }
+        },
+        'globals.css': {
+          file: {
+            contents: globalsCSS
+          }
+        }
       }
     }
   };

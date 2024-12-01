@@ -17,252 +17,196 @@ import {
   cleanup
 } from '../services/webcontainer';
 import { createNextJsFiles } from '../utils/nextjs-init';
+import { uploadProjectFiles } from '../services/supabase';
+import { FileManager } from '../services/fileManager';
+import FileExplorer from '../components/FileExplorer';
 
 export default function CreatePage() {
   const [chatMessages, setChatMessages] = useState([]);
   const [input, setInput] = useState('');
   const [currentFiles, setCurrentFiles] = useState({});
-  const [activeFile, setActiveFile] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isEnvironmentReady, setIsEnvironmentReady] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState('/loading.html');
-  const [activeTab, setActiveTab] = useState('preview');
-  const [isDragging, setIsDragging] = useState(false);
-  const [splitPosition, setSplitPosition] = useState(50);
+  const [webContainerInstance, setWebContainerInstance] = useState(null);
   const [projectDetails, setProjectDetails] = useState({
     name: '',
     theme: '',
     type: ''
   });
-  const [setupStep, setSetupStep] = useState('name'); // 'name', 'theme', 'type', 'ready'
-  const terminalRef = useRef(null);
+  const [selectedFile, setSelectedFile] = useState('app/page.js');
+  const [fileContent, setFileContent] = useState('');
+  const [isEnvironmentReady, setIsEnvironmentReady] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [setupStep, setSetupStep] = useState('name'); // 'name', 'description', 'ready'
+  const [splitPosition, setSplitPosition] = useState(50);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileManager = useRef(null);
   const chatRef = useRef(null);
   const terminalInstance = useRef(null);
+  const fitAddon = useRef(null);
   const shellProcess = useRef(null);
-  const fitAddonInstance = useRef(null);
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   // Initialize chat with project setup questions
   useEffect(() => {
     setChatMessages([{
       role: 'assistant',
-      content: "Welcome! Let's set up your development environment. First, what would you like to name your project? (Press Enter to use default name 'my-app')"
+      content: 'Let\'s set up your project! What would you like to name it? (optional)'
     }]);
   }, []);
 
-  // Handle project setup flow
-  const handleSetupResponse = async (response) => {
-    switch (setupStep) {
-      case 'name':
-        setProjectDetails(prev => ({ 
-          ...prev, 
-          name: response.trim() || 'my-app'
-        }));
-        setChatMessages(prev => [
-          ...prev,
-          { role: 'user', content: response || 'my-app' },
-          { role: 'assistant', content: "Great! Now, what theme would you like for your app? Choose from:\n1. Light\n2. Dark\n3. System (adapts to user's preference)\n(Press Enter for default 'System' theme)" }
-        ]);
-        setSetupStep('theme');
-        break;
-
-      case 'theme':
-        const theme = response.trim().toLowerCase();
-        let selectedTheme = 'system';
-        if (theme.includes('light')) selectedTheme = 'light';
-        if (theme.includes('dark')) selectedTheme = 'dark';
-        
-        setProjectDetails(prev => ({ ...prev, theme: selectedTheme }));
-        setChatMessages(prev => [
-          ...prev,
-          { role: 'user', content: response || 'system' },
-          { role: 'assistant', content: "Perfect! I've initialized a Next.js environment for you. What type of application would you like to build? Here are some suggestions:\n\n1. Web Application (e.g., Dashboard, Blog, E-commerce)\n2. API Service\n3. Full-Stack Application\n\nDescribe your project and I'll help you get started!" }
-        ]);
-        setSetupStep('ready');
-        
-        // Initialize Next.js environment
-        initializeNextJsEnvironment();
-        break;
-
-      case 'ready':
-        handleGenerateCode();
-        break;
+  const handleFileSelect = async (path) => {
+    try {
+      if (fileManager.current) {
+        const content = await fileManager.current.readFile(path);
+        setSelectedFile(path);
+        setFileContent(content);
+        fileManager.current.setCurrentFile(path);
+      }
+    } catch (error) {
+      console.error('Error selecting file:', error);
+      setError(`Failed to open file: ${error.message}`);
     }
   };
 
-  async function initializeNextJsProject(projectName, theme) {
+  const handleEditorChange = async (value) => {
     try {
-      // Initialize WebContainer
-      const container = await initWebContainer();
-      
-      // Create Next.js files
-      const files = createNextJsFiles(projectName, theme);
-      await mountFiles(files);
-      
-      // Install dependencies
-      await installDependencies(terminalInstance.current);
-      
-      // Start development server
-      await startDevServer(terminalInstance.current);
-      
-      // Return success message
-      return `Successfully initialized Next.js project: ${projectName}`;
+      if (fileManager.current && selectedFile) {
+        await fileManager.current.writeFile(selectedFile, value);
+      }
     } catch (error) {
-      console.error('Failed to initialize Next.js project:', error);
-      throw new Error(`Failed to initialize Next.js project: ${error.message}`);
+      console.error('Error saving file:', error);
+      setError(`Failed to save file: ${error.message}`);
     }
-  }
+  };
 
   const initializeNextJsEnvironment = async () => {
-    if (terminalInstance.current) {
-      terminalInstance.current.write('\r\n\x1b[32m> Initializing Next.js environment...\x1b[0m\r\n');
+    try {
+      setLoading(true);
+      const files = await createNextJsFiles(projectDetails.name);
       
-      // Create package.json
-      const packageJson = {
-        name: projectDetails.name,
-        version: '0.1.0',
-        private: true,
-        scripts: {
-          dev: 'next dev',
-          build: 'next build',
-          start: 'next start'
-        },
-        dependencies: {
-          'next': '^14.0.0',
-          'react': '^18.2.0',
-          'react-dom': '^18.2.0',
-          'tailwindcss': '^3.3.0',
-          'autoprefixer': '^10.4.0',
-          'postcss': '^8.4.0'
-        }
-      };
-
-      // Create initial files
-      const files = {
-        'package.json': {
-          file: {
-            contents: JSON.stringify(packageJson, null, 2)
-          }
-        },
-        'next.config.js': {
-          file: {
-            contents: 'module.exports = { reactStrictMode: true };'
-          }
-        },
-        'postcss.config.js': {
-          file: {
-            contents: 'module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } };'
-          }
-        },
-        'tailwind.config.js': {
-          file: {
-            contents: `
-module.exports = {
-  content: [
-    './app/**/*.{js,jsx,ts,tsx}',
-    './components/**/*.{js,jsx,ts,tsx}',
-  ],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-  darkMode: '${projectDetails.theme === 'system' ? 'class' : projectDetails.theme}'
-};`
-          }
-        },
-        'app/layout.js': {
-          file: {
-            contents: `
-import './globals.css';
-
-export const metadata = {
-  title: '${projectDetails.name}',
-  description: 'Created with PromptCreate',
-};
-
-export default function RootLayout({ children }) {
-  return (
-    <html lang="en" className="${projectDetails.theme === 'dark' ? 'dark' : ''}">
-      <body>{children}</body>
-    </html>
-  );
-}`
-          }
-        },
-        'app/globals.css': {
-          file: {
-            contents: `
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-:root {
-  --foreground-rgb: 0, 0, 0;
-  --background-rgb: 255, 255, 255;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-rgb: 0, 0, 0;
-  }
-}
-
-body {
-  color: rgb(var(--foreground-rgb));
-  background: rgb(var(--background-rgb));
-}`
-          }
-        },
-        'app/page.js': {
-          file: {
-            contents: `
-export default function Home() {
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <h1 className="text-4xl font-bold">Welcome to ${projectDetails.name}</h1>
-        <p className="mt-4 text-lg">Start building your application!</p>
-      </div>
-    </main>
-  );
-}`
-          }
-        }
-      };
-
-      try {
-        // Mount files
-        await mountFiles(files);
-        
-        // Install dependencies
-        terminalInstance.current.write('\r\n\x1b[32m> Installing dependencies...\x1b[0m\r\n');
-        await installDependencies(terminalInstance.current);
-        
-        // Start development server
-        terminalInstance.current.write('\r\n\x1b[32m> Starting development server...\x1b[0m\r\n');
-        await startDevServer(terminalInstance.current);
-        
-        setCurrentFiles(files);
-        setActiveFile('app/page.js');
-        setIsEnvironmentReady(true);
-      } catch (err) {
-        console.error('Environment setup error:', err);
-        setError(`Failed to initialize environment: ${err.message}`);
+      // Initialize file manager
+      if (!fileManager.current) {
+        fileManager.current = new FileManager(webContainerInstance);
+        fileManager.current.setOnFilesChange(setCurrentFiles);
       }
+      
+      await fileManager.current.initialize(projectDetails.name || 'nextjs-project', files);
+      
+      // Mount files to WebContainer
+      await webContainerInstance.mount(files);
+      
+      // Start auto-save
+      fileManager.current.startAutoSave();
+      
+      // Initialize the development server
+      const packageJSON = await webContainerInstance.fs.readFile('package.json', 'utf-8');
+      console.log('Package.json:', packageJSON);
+
+      const installProcess = await webContainerInstance.spawn('npm', ['install']);
+      const installExitCode = await installProcess.exit;
+
+      if (installExitCode !== 0) {
+        throw new Error('Installation failed');
+      }
+
+      // Start the development server
+      startDevServer(webContainerInstance);
+      
+      // Set initial file content
+      const initialContent = await fileManager.current.readFile('app/page.js');
+      setFileContent(initialContent);
+      
+      setLoading(false);
+      setIsEnvironmentReady(true);
+    } catch (error) {
+      console.error('Failed to initialize Next.js environment:', error);
+      setLoading(false);
+      setError(`Failed to initialize environment: ${error.message}`);
+      throw error;
     }
   };
+
+  useEffect(() => {
+    const initializeTerminal = async () => {
+      if (typeof window !== 'undefined' && !terminalInstance.current) {
+        try {
+          // Initialize terminal
+          terminalInstance.current = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: 'monospace',
+            theme: {
+              background: '#1e1e1e',
+              foreground: '#ffffff'
+            }
+          });
+
+          // Initialize fit addon
+          fitAddon.current = new FitAddon();
+          terminalInstance.current.loadAddon(fitAddon.current);
+
+          // Open terminal
+          const terminalElement = document.getElementById('terminal');
+          terminalInstance.current.open(terminalElement);
+          
+          // Initial fit
+          setTimeout(() => {
+            if (fitAddon.current) {
+              try {
+                fitAddon.current.fit();
+              } catch (e) {
+                console.warn('Failed to fit terminal:', e);
+              }
+            }
+          }, 100);
+
+          // Handle window resize
+          const handleResize = () => {
+            if (fitAddon.current) {
+              try {
+                fitAddon.current.fit();
+              } catch (e) {
+                console.warn('Failed to fit terminal:', e);
+              }
+            }
+          };
+
+          window.addEventListener('resize', handleResize);
+
+          // Initialize WebContainer
+          const container = await initWebContainer();
+          if (container) {
+            setWebContainerInstance(container);
+            setIsEnvironmentReady(true);
+            terminalInstance.current.write('\r\n\x1b[32m> Environment ready!\x1b[0m\r\n');
+          }
+
+          return () => {
+            window.removeEventListener('resize', handleResize);
+            if (terminalInstance.current) {
+              terminalInstance.current.dispose();
+            }
+            cleanup();
+          };
+        } catch (err) {
+          console.error('Failed to initialize environment:', err);
+          setError(err.message);
+        }
+      }
+    };
+
+    initializeTerminal();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
     if (isGenerating) return;
     
     const userMessage = input.trim();
     if (!userMessage) return;
 
     if (setupStep !== 'ready') {
-      handleSetupResponse(input);
+      handleSetupResponse(userMessage);
     } else {
       const newMessages = [...chatMessages, { role: 'user', content: userMessage }];
       setChatMessages(newMessages);
@@ -273,8 +217,13 @@ export default function Home() {
           const projectName = userMessage.match(/project name[:\s]+([^\s]+)/i)?.[1] || 'my-app';
           const theme = userMessage.match(/theme[:\s]+([^\s]+)/i)?.[1] || 'default';
           
-          const result = await initializeNextJsProject(projectName, theme);
-          setChatMessages([...newMessages, { role: 'assistant', content: result }]);
+          setProjectDetails(prev => ({ ...prev, name: projectName, theme }));
+          await initializeNextJsEnvironment();
+          
+          setChatMessages([...newMessages, { 
+            role: 'assistant', 
+            content: `I've set up your Next.js project with name: ${projectName} and theme: ${theme}. You can now start building your application!` 
+          }]);
         } else {
           await handleGenerateCode();
         }
@@ -366,103 +315,146 @@ export default function Home() {
     document.removeEventListener('mouseup', handleMouseUp);
   };
 
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
+
+  const handleSetupResponse = async (response) => {
+    try {
+      switch (setupStep) {
+        case 'name':
+          setProjectDetails(prev => ({ ...prev, name: response || 'nextjs-project' }));
+          setSetupStep('description');
+          setChatMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: "Great! Now, please describe what you'd like to build. This will help me set up the appropriate files and dependencies."
+            }
+          ]);
+          break;
+        
+        case 'description':
+          setProjectDetails(prev => ({ ...prev, description: response }));
+          setSetupStep('ready');
+          try {
+            setLoading(true);
+            await initializeNextJsEnvironment();
+            setChatMessages(prev => [
+              ...prev,
+              {
+                role: 'assistant',
+                content: "I've set up your Next.js environment based on your description. You can now start building your application! Let me know if you need any help."
+              }
+            ]);
+          } catch (error) {
+            setChatMessages(prev => [
+              ...prev,
+              {
+                role: 'assistant',
+                content: `Failed to initialize the environment: ${error.message}. Please try again.`
+              }
+            ]);
+          } finally {
+            setLoading(false);
+          }
+          break;
+      }
+    } catch (error) {
+      console.error('Error in setup:', error);
+      setError(`Setup failed: ${error.message}`);
+    }
+  };
+
   return (
-    <div className="workspace">
-      {/* Left side - Chat */}
-      <div className="chat-section" style={{ width: `${splitPosition}%` }}>
-        <div className="chat-messages" ref={chatRef}>
-          {chatMessages.map((msg, i) => (
-            <div key={i} className={`chat-message ${msg.role}`}>
-              {msg.content}
-            </div>
-          ))}
-        </div>
-        <form onSubmit={handleSubmit} className="chat-input-form">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe your application..."
-            disabled={isGenerating}
-            className="chat-input"
+    <div className="flex flex-col h-screen">
+      <div className="flex-1 flex">
+        {/* File Explorer */}
+        <div className="w-64 border-r border-gray-700">
+          <FileExplorer
+            files={currentFiles}
+            onFileSelect={handleFileSelect}
+            selectedFile={selectedFile}
           />
-          <button 
-            type="submit" 
-            disabled={isGenerating || !input.trim()}
-            className="chat-submit"
-          >
-            {isGenerating ? 'Generating...' : 'Generate'}
-          </button>
-        </form>
-      </div>
-
-      {/* Resizer */}
-      <div 
-        className="resizer"
-        onMouseDown={handleMouseDown}
-        style={{ left: `${splitPosition}%` }}
-      />
-
-      {/* Right side - Workspace */}
-      <div className="workspace-section" style={{ width: `${100 - splitPosition}%` }}>
-        {/* Tabs */}
-        <div className="workspace-tabs">
-          <button
-            className={`tab ${activeTab === 'preview' ? 'active' : ''}`}
-            onClick={() => setActiveTab('preview')}
-          >
-            Preview
-          </button>
-          <button
-            className={`tab ${activeTab === 'editor' ? 'active' : ''}`}
-            onClick={() => setActiveTab('editor')}
-          >
-            Editor
-          </button>
-          <button
-            className={`tab ${activeTab === 'terminal' ? 'active' : ''}`}
-            onClick={() => setActiveTab('terminal')}
-          >
-            Terminal
-          </button>
         </div>
 
-        {/* Tab content */}
-        <div className="workspace-content">
-          <div className={`preview-container ${activeTab === 'preview' ? 'active' : ''}`}>
-            <iframe
-              src={previewUrl}
-              title="Preview"
-              sandbox="allow-scripts allow-same-origin allow-forms"
-              allow="cross-origin-isolated"
-            />
-          </div>
-          <div className={`editor-container ${activeTab === 'editor' ? 'active' : ''}`}>
+        {/* Editor and Terminal */}
+        <div className="flex-1 flex flex-col">
+          {/* Editor */}
+          <div className="flex-1">
             <Editor
               height="100%"
               defaultLanguage="javascript"
               theme="vs-dark"
-              path={activeFile}
-              value={currentFiles[activeFile]?.content || '// Your code will appear here'}
+              value={fileContent}
+              onChange={handleEditorChange}
               options={{
-                readOnly: isGenerating,
                 minimap: { enabled: false },
                 fontSize: 14,
                 wordWrap: 'on'
               }}
             />
           </div>
-          <div className={`terminal-container ${activeTab === 'terminal' ? 'active' : ''}`}>
-            <div ref={terminalRef} className="terminal-content">
-              {error && (
-                <div className="terminal-error">
-                  {error}
-                </div>
-              )}
-            </div>
+
+          {/* Terminal */}
+          <div className="h-1/3 bg-black p-2">
+            <div id="terminal" className="h-full"></div>
+          </div>
+        </div>
+
+        {/* Chat Interface */}
+        <div className="w-96 border-l border-gray-700 flex flex-col">
+          <div className="flex-1 overflow-y-auto p-4" ref={chatRef}>
+            {chatMessages.map((message, index) => (
+              <div
+                key={index}
+                className={`mb-4 ${
+                  message.role === 'assistant' ? 'text-blue-400' : 'text-green-400'
+                }`}
+              >
+                <strong>{message.role === 'assistant' ? 'AI: ' : 'You: '}</strong>
+                {message.content}
+              </div>
+            ))}
+          </div>
+          <div className="p-4 border-t border-gray-700">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Type your message..."
+              className="w-full p-2 bg-gray-800 text-white rounded border border-gray-600"
+            />
           </div>
         </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="fixed bottom-4 right-4 bg-red-500 text-white p-4 rounded shadow-lg">
+          {error}
+          <button
+            onClick={() => setError(null)}
+            className="ml-4 text-white hover:text-gray-200"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Loading Indicator */}
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-gray-800 p-4 rounded shadow-lg">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
+            <div className="text-white mt-2">Setting up your environment...</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
