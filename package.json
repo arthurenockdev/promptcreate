@@ -9,9 +9,12 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "@notionhq/client": "^2.2.15",
+    "framer-motion": "^11.13.3",
+    "next": "15.0.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "next": "15.0.4"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "postcss": "^8",
